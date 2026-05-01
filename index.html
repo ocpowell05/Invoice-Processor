@@ -523,6 +523,9 @@ DESCRIPTION ARRAY RULES:
 5. For NON-PAINT GALLON items (lacquer thinner etc.): "[qty] gal [product name]" lowercase, own string
 6. For supply/material items:
    - Translate to plain lowercase names: CLK=caulk, MASK TAPE=masking tape, MASK PAPER=masking paper, CP6/MASK FILM=masking film, RLR=roller, PRMR=primer, WOVEN=roller cover, MICROFIBER=roller cover, etc.
+   - Products with "WL" prefix (e.g. WL0850A, WL0950A, WL1360A) are caulk/sealant products regardless of their description — always classify as "caulk"
+   - Products described as CLK, CAULK, SEALANT, ULTRA-WHITE, SHER-MAX, or any 11 OZ / 20 OZ tube item are caulk — classify as "caulk"
+   - Do NOT drop or skip any line item that is not a paint/coating — if unsure what something is, include it with its best plain-English name
    - DEDUPLICATE: same item type appears once only
    - Collect all unique supply names into ONE comma-separated string as the last entry in the array
 7. If no supplies exist (only paint), still just have paint lines in the array
