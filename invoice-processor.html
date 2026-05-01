@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painting Plus — Invoice Processor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --surface2: #242424;
+    --border: #2e2e2e;
+    --accent: #e8a020;
+    --accent2: #d4691a;
+    --text: #f0ede8;
+    --muted: #888;
+    --red: #e05050;
+    --green: #4caf78;
+    --mono: 'DM Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+  }
+
+  header {
+    padding: 28px 40px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .logo-mark {
+    width: 36px; height: 36px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  header span {
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 400;
+    margin-left: 4px;
+  }
+
+  main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+
+  /* Drop Zone */
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 64px 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--surface);
+    position: relative;
+  }
+
+  #drop-zone:hover, #drop-zone.drag-over {
+    border-color: var(--accent);
+    background: #1f1a12;
+  }
+
+  #drop-zone .icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    display: block;
+  }
+
+  #drop-zone h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  #drop-zone p {
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  #file-input { display: none; }
+
+  .upload-btn {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 10px 24px;
+    background: var(--accent);
+    color: #000;
+    border-radius: 8px;
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    border: none;
+    transition: background 0.2s;
+  }
+
+  .upload-btn:hover { background: var(--accent2); }
+
+  /* Status */
+  #status-bar {
+    display: none;
+    margin-top: 24px;
+    padding: 16px 20px;
+    background: var(--surface);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Results */
+  #results { margin-top: 40px; }
+
+  .results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+
+  .results-header h3 {
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  .results-header .count {
+    background: var(--surface2);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+
+  .copy-all-btn {
+    padding: 8px 18px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .copy-all-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Invoice Card */
+  .invoice-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+
+  .invoice-card:hover { border-color: #3e3e3e; }
+
+  .invoice-card.correction {
+    border-color: var(--red);
+    border-width: 2px;
+  }
+
+  .card-header {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  .invoice-num {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .job-tag {
+    background: #1e1e1e;
+    border: 1px solid var(--border);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-family: var(--mono);
+    color: var(--text);
+  }
+
+  .correction-badge {
+    background: #3a1515;
+    border: 1px solid var(--red);
+    color: var(--red);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    margin-left: auto;
+  }
+
+  .po-tag {
+    font-size: 13px;
+    color: var(--muted);
+    margin-left: auto;
+    font-family: var(--mono);
+  }
+
+  .card-body {
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: 110px 120px 1fr auto;
+    gap: 12px;
+    align-items: start;
+  }
+
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .field-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .field-value {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--text);
+    cursor: pointer;
+    padding: 6px 10px;
+    background: var(--bg);
+    border-radius: 6px;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+    user-select: all;
+    white-space: nowrap;
+  }
+
+  .field-value:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .field-value.copied {
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  .field-value.description {
+    white-space: normal;
+    line-height: 1.5;
+    font-size: 13px;
+  }
+
+  .copy-row-btn {
+    padding: 8px 16px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    align-self: center;
+  }
+
+  .copy-row-btn:hover { background: var(--accent2); }
+
+  .copy-row-btn.copied {
+    background: var(--green);
+  }
+
+  /* Error */
+  .error-card {
+    background: #2a1515;
+    border: 1px solid var(--red);
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-size: 14px;
+    color: var(--red);
+    margin-bottom: 12px;
+  }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    bottom: 32px;
+    right: 32px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-family: var(--mono);
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.2s;
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  #toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .correction-note {
+    padding: 10px 20px;
+    background: #2a1515;
+    font-size: 12px;
+    color: var(--red);
+    font-family: var(--mono);
+    border-top: 1px solid #3a1515;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">🖌</div>
+  <h1>Invoice Processor <span>— Painting Plus</span></h1>
+</header>
+
+<main>
+  <div id="edge-warning" style="display:none; background:#2a1a0a; border:1px solid #e8a020; border-radius:10px; padding:12px 18px; margin-bottom:16px; font-size:13px; color:#e8a020; font-family:DM Mono,monospace;">
+    ⚠ Running as a local file in Edge may block API calls. For best results, use this tool inside the Claude.ai chat window instead.
+  </div>
+  <div id="drop-zone">
+    <span class="icon">📄</span>
+    <h2>Drop daily invoice PDF here</h2>
+    <p>Drag & drop or click to select your Sherwin-Williams daily invoice PDF</p>
+    <button class="upload-btn" onclick="event.stopPropagation(); document.getElementById('file-input').click()">Select PDF</button>
+    <input type="file" id="file-input" accept=".pdf">
+  </div>
+
+  <div id="status-bar"></div>
+  <div id="results"></div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+// Show Edge local file warning
+if (window.location.protocol === 'file:' && navigator.userAgent.includes('Edg')) {
+  document.getElementById('edge-warning').style.display = 'block';
+}
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const statusBar = document.getElementById('status-bar');
+const resultsDiv = document.getElementById('results');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if (e.target.files && e.target.files[0]) { handleFile(e.target.files[0]); e.target.value = ''; } });
+
+function setStatus(msg, loading = true) {
+  statusBar.style.display = 'block';
+  statusBar.innerHTML = loading ? `<span class="spinner"></span>${msg}` : msg;
+}
+
+async function handleFile(file) {
+  if (!file || file.type !== 'application/pdf') { alert('Please select a PDF file.'); return; }
+  resultsDiv.innerHTML = '';
+  setStatus('Reading PDF...');
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pages = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      pages.push(content.items.map(item => item.str).join(' '));
+    }
+
+    setStatus(`Extracted ${pages.length} pages. Sending to AI for processing...`);
+    await processWithAI(pages, file.name);
+  } catch (err) {
+    setStatus(`Error reading PDF: ${err.message}`, false);
+  }
+}
+
+async function processWithAI(pages, filename) {
+  const allText = pages.map((p, i) => `=== PAGE ${i+1} ===\n${p}`).join('\n\n');
+  const userPrompt = `Process these invoice pages from file "${filename}":\n\n${allText}`;
+
+  const systemPrompt = `You are processing Sherwin-Williams invoices for a painting company.
+Extract each invoice and return a JSON array. Each invoice object must have:
+- invoice_num: the invoice number (e.g. "53141")
+- is_correction: true if this is a "CHARGE CORRECT" document, false otherwise
+- date: formatted as M/D/YYYY (e.g. "4/21/2026")
+- total: the CHARGE amount as a dollar string (e.g. "$115.57")
+- job: the job number and name (e.g. "151 LONE TREE JUSTICE CENTER")
+- po: the PO field value
+- buyer: the name at the bottom of the invoice after "RECEIVED IN GOOD ORDER BY:" or "ORDERED BY:" (e.g. "JAVIER")
+- description: array of strings, one per line (paint lines first, then one supplies line) - see rules
+- flagged_items: array of objects for unapproved items, each with { name: string, pretax_value: number }
+- tax_rate: the tax rate as a decimal (e.g. 0.082 for 8.2%)
+- store_number: the store number (e.g. "703490") found near "Store" on the invoice
+- store_phone: the FIRST phone number listed on the invoice (not the fax number). The fax number is labeled "Fax:" - ignore it. Only return the phone number without "Fax" label.
+- invoice_full: the full 14-digit invoice number ending in 0426 or similar year digits (e.g. "93801203170426")
+- job_number: just the numeric job number extracted from the job field (e.g. "1" from "JOB 1 PAINTING PLUS OF COLORADO", "131" from "JOB 131 WALMART")
+
+GALLON CALCULATION RULES (critical):
+- The QTY column is ALWAYS the total gallons for that line, regardless of can size
+- SIZE "5 GAL" with QTY 10 = 10 gallons total (not 50)
+- SIZE "GALLON" with QTY 3 = 3 gallons total
+- If the same paint color appears on multiple lines (different can sizes), ADD the QTYs together into one entry
+- Non-gallon items like 11 OZ, 20 OZ tubes are NOT paint gallon items
+
+FLAGGED ITEMS (unapproved purchases - must be separated):
+These item types are flagged: respirators, coverall suits, brushes, tools, roller covers, tip guards, extension poles, wearable speakers, lube, spray socks.
+- Identify any line items that match these categories
+- Extract their pre-tax VALUE amounts and item names
+- Do NOT include flagged items in the normal description array
+- The tax_rate field should be the invoice tax rate as a decimal
+
+DESCRIPTION ARRAY RULES:
+1. EXCLUDE "GOVT IMPOSED PAINT FEE" lines entirely
+2. EXCLUDE discount lines
+3. EXCLUDE flagged items (those go in flagged_items instead)
+4. For PAINT/COATING items (paints, primers, stains, blockfillers in gallons):
+   - Format: "[total gal] gal [PRODUCT NAME] - [colorcode] COLOR NAME"
+   - QTY = total gallons directly; combine same color across multiple lines
+   - Product name uppercase (e.g. "PM 200 0 FL EXTRA", "DURATION EX SA UD")
+   - Color code: number only from SW#### (e.g. "7005"), no "SW" prefix
+   - Color name: ALL CAPS (e.g. "PURE WHITE")
+   - Custom/manual colors: "[total gal] gal [PRODUCT NAME] - CUSTOM COLOR NAME" (no code)
+   - Each paint entry is its own string in the array
+5. For NON-PAINT GALLON items (lacquer thinner etc.): "[qty] gal [product name]" lowercase, own string
+6. For supply/material items:
+   - Translate to plain lowercase names: CLK=caulk, MASK TAPE=masking tape, MASK PAPER=masking paper, CP6/MASK FILM=masking film, RLR=roller, PRMR=primer, WOVEN=roller cover, MICROFIBER=roller cover, etc.
+   - DEDUPLICATE: same item type appears once only
+   - Collect all unique supply names into ONE comma-separated string as the last entry in the array
+7. If no supplies exist (only paint), still just have paint lines in the array
+
+ARRAY EXAMPLE (paint + supplies, no flagged items):
+["10 gal PM 200 0 FL EXTRA - 7005 PURE WHITE", "5 gal PVA INT PRMR - 7005 PURE WHITE", "masking tape, masking paper, caulk"]
+
+ARRAY EXAMPLE (paint + supplies + flagged items):
+description: ["10 gal PM 200 0 FL EXTRA - 7005 PURE WHITE", "masking tape, caulk"]
+flagged_items: [{"name": "respirator", "pretax_value": 24.99}, {"name": "coverall suit", "pretax_value": 12.50}]
+
+For correction invoices: mark is_correction: true, extract what you can.
+
+Return ONLY a valid JSON array, no markdown, no explanation. Be concise in all string values to avoid hitting response limits.`
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }]
+      })
+    });
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    const text = data.content?.map(b => b.text || '').join('') || '';
+    // Strip markdown fences and find the JSON array
+    let clean = text.replace(/```json|```/g, '').trim();
+    // Extract just the JSON array in case there's surrounding text
+    const arrStart = clean.indexOf('[');
+    const arrEnd = clean.lastIndexOf(']');
+    if (arrStart === -1 || arrEnd === -1) throw new Error('No JSON array found in response');
+    clean = clean.slice(arrStart, arrEnd + 1);
+    const invoices = JSON.parse(clean);
+
+    setStatus(`✓ Processed ${invoices.length} invoices`, false);
+    renderResults(invoices);
+  } catch (err) {
+    setStatus(`Error processing invoices: ${err.message}`, false);
+    console.error(err);
+  }
+}
+
+function renderResults(invoices) {
+  if (!invoices.length) { resultsDiv.innerHTML = '<p style="color:var(--muted)">No invoices found.</p>'; return; }
+
+  const corrections = invoices.filter(i => i.is_correction).length;
+  let html = `<div class="results-header">
+    <div style="display:flex;align-items:center;gap:12px">
+      <h3>Results</h3>
+      <span class="count">${invoices.length} invoices${corrections ? ` · <span style="color:var(--red)">${corrections} correction${corrections>1?'s':''}</span>` : ''}</span>
+    </div>
+  </div>`;
+
+  invoices.forEach((inv, idx) => {
+    const isCorr = inv.is_correction;
+    const flagged = Array.isArray(inv.flagged_items) ? inv.flagged_items : [];
+    const hasFlagged = flagged.length > 0;
+
+    // Calculate flagged items total with tax
+    let flaggedTotal = 0;
+    let flaggedNames = [];
+    if (hasFlagged) {
+      const pretaxSum = flagged.reduce((sum, f) => sum + (parseFloat(f.pretax_value) || 0), 0);
+      const taxRate = parseFloat(inv.tax_rate) || 0;
+      flaggedTotal = pretaxSum * (1 + taxRate);
+      flaggedNames = flagged.map(f => f.name);
+    }
+    const flaggedTotalStr = hasFlagged ? '$' + flaggedTotal.toFixed(2) : '';
+    const flaggedNamesStr = hasFlagged ? flaggedNames.join(', ') : '';
+    const buyerName = (inv.buyer || '').trim();
+
+    // Build description display: normal lines + flagged line if applicable
+    const descLines = Array.isArray(inv.description) ? inv.description : (inv.description ? [inv.description] : []);
+    const flaggedLine = hasFlagged ? `${flaggedTotalStr} ${flaggedNamesStr} (${buyerName})` : '';
+    const allLines = hasFlagged ? [...descLines, flaggedLine] : descLines;
+    const descDisplay = allLines.join('\n');
+
+    // Deduct string
+    const deductStr = hasFlagged ? `deduct ${flaggedTotalStr} ${flaggedNamesStr} from SW on ${inv.date} (${buyerName})` : '';
+
+    html += `<div class="invoice-card${isCorr ? ' correction' : ''}">
+      <div class="card-header">
+        <span class="invoice-num">#${inv.invoice_num || '—'}</span>
+        <span class="job-tag">${inv.job || '—'}</span>
+        ${isCorr ? '<span class="correction-badge">⚠ CORRECTION — REVIEW</span>' : `<span class="po-tag">PO: ${inv.po || '—'}</span>`}
+        ${hasFlagged ? '<span style="background:#1a2a3a;border:1px solid #4a9edd;color:#4a9edd;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-left:4px">⚑ FLAGGED ITEMS</span>' : ''}
+      </div>
+      ${isCorr ? `<div class="correction-note">⚠ This is a correction invoice. Review manually before entering — it modifies a previous transaction.</div>` : ''}
+      <div class="card-body">
+        <div class="field-group">
+          <div class="field-label">Date</div>
+          <div class="field-value" onclick="copyField(this)" title="Click to copy">${inv.date || ''}</div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Cost</div>
+          <div class="field-value" onclick="copyField(this)" title="Click to copy">${inv.total || ''}</div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Description${hasFlagged ? ' <span style="color:#4a9edd;font-size:9px">(flagged line included)</span>' : ''}</div>
+          <div class="field-value description" style="white-space:pre-line; cursor:default">${descDisplay}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;align-self:center">
+          <button class="copy-row-btn" onclick="copyRow(this, '${escapeAttr(inv.date)}', '${escapeAttr(inv.total)}')">Copy Row</button>
+          ${hasFlagged ? `<button class="copy-row-btn" style="background:#1a2a3a;color:#4a9edd;border:1px solid #4a9edd;" onclick="copyDeduct(this, '${escapeAttr(deductStr)}')">Copy Deduct</button>` : ''}
+          <button class="copy-row-btn" style="background:#1a2a1a;color:#7ec87e;border:1px solid #4a8a4a;" onclick="copyRebill(this, '${escapeAttr(inv.date)}', '${escapeAttr(inv.job_number||'')}', '${escapeAttr(inv.invoice_full||inv.invoice_num||'')}', '${escapeAttr(inv.total)}', '${escapeAttr(inv.store_number||'')}', '${escapeAttr(inv.store_phone||'')}', '${escapeAttr(inv.po||'')}', '${escapeAttr(inv.buyer||'')}')">Copy Rebill Row</button>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  resultsDiv.innerHTML = html;
+}
+
+function copyToClipboard(text, onSuccess) {
+  // Try modern clipboard API first
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(onSuccess).catch(() => fallbackCopy(text, onSuccess));
+  } else {
+    fallbackCopy(text, onSuccess);
+  }
+}
+
+function fallbackCopy(text, onSuccess) {
+  // Fallback using textarea + execCommand (works in Edge on local files)
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.top = '-9999px';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand('copy');
+    onSuccess();
+  } catch (e) {
+    showToast('Copy failed — try selecting text manually');
+  }
+  document.body.removeChild(ta);
+}
+
+function copyField(el) {
+  const text = el.innerText;
+  copyToClipboard(text, () => {
+    el.classList.add('copied');
+    showToast('Copied!');
+    setTimeout(() => el.classList.remove('copied'), 1500);
+  });
+}
+
+function copyRow(btn, date, cost) {
+  const card = btn.closest('.card-body');
+  const descEl = card.querySelector('.description');
+  const descText = descEl ? descEl.innerText.trim() : '';
+  const lines = descText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  // Build multi-row TSV: first row has date + cost + first desc line
+  // subsequent rows have empty date + cost + remaining desc lines
+  const rows = lines.map((line, i) => {
+    if (i === 0) return `${date}\t${cost}\t${line}`;
+    return `\t\t${line}`;
+  });
+
+  // If no description lines at all, just copy date and cost
+  if (rows.length === 0) rows.push(`${date}\t${cost}\t`);
+
+  const tsv = rows.join('\n');
+  copyToClipboard(tsv, () => {
+    btn.textContent = '✓ Copied';
+    btn.classList.add('copied');
+    showToast('Row copied — paste into Google Sheets');
+    setTimeout(() => { btn.textContent = 'Copy Row'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function copyRebill(btn, date, jobNum, invoiceFull, amount, storeNum, storePhone, po, buyer) {
+  const email = storeNum ? `sw${storeNum}@sherwin.com` : '';
+  // TSV row: date, wrong job#, correct job# (blank), invoice#, amount, store#, store phone, PO, ordered by, need to contact, email
+  const tsv = `${date}\t${jobNum}\t\t${invoiceFull}\t${amount}\t${storeNum}\t${storePhone}\t${po}\t${buyer}\tY\t${email}`;
+  copyToClipboard(tsv, () => {
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied';
+    showToast('Rebill row copied — paste into rebill tracker sheet');
+    setTimeout(() => { btn.textContent = 'Copy Rebill Row'; }, 2000);
+  });
+}
+
+function copyDeduct(btn, deductStr) {
+  copyToClipboard(deductStr, () => {
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied';
+    setTimeout(() => { btn.textContent = 'Copy Deduct'; }, 2000);
+  });
+  showToast('Deduct line copied');
+}
+
+function escapeAttr(str) {
+  return (str || '').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+</script>
+</body>
+</html>
