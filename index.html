@@ -373,6 +373,16 @@
   <h1>Invoice Processor <span>— Painting Plus</span></h1>
 </header>
 
+<div id="api-key-bar" style="background:#1a1a1a;border-bottom:1px solid #2e2e2e;padding:12px 40px;display:flex;align-items:center;gap:12px;">
+  <span style="font-size:12px;color:#888;font-family:DM Mono,monospace;white-space:nowrap">API KEY</span>
+  <input id="api-key-input" type="password" placeholder="sk-ant-api03-..." 
+    style="flex:1;max-width:420px;background:#0f0f0f;border:1px solid #2e2e2e;border-radius:6px;padding:7px 12px;color:#f0ede8;font-family:DM Mono,monospace;font-size:13px;outline:none;"
+    oninput="saveKey(this.value)"
+  />
+  <span id="key-status" style="font-size:12px;font-family:DM Mono,monospace;color:#888"></span>
+  <a href="https://console.anthropic.com/settings/keys" target="_blank" style="font-size:12px;color:#e8a020;font-family:DM Mono,monospace;text-decoration:none;white-space:nowrap">Get a key ↗</a>
+</div>
+
 <main>
   <div id="edge-warning" style="display:none; background:#2a1a0a; border:1px solid #e8a020; border-radius:10px; padding:12px 18px; margin-bottom:16px; font-size:13px; color:#e8a020; font-family:DM Mono,monospace;">
     ⚠ Running as a local file in Edge may block API calls. For best results, use this tool inside the Claude.ai chat window instead.
@@ -396,6 +406,33 @@
 if (window.location.protocol === 'file:' && navigator.userAgent.includes('Edg')) {
   document.getElementById('edge-warning').style.display = 'block';
 }
+
+// API key management
+function saveKey(val) {
+  val = val.trim();
+  if (val) {
+    localStorage.setItem('pp_api_key', val);
+    document.getElementById('key-status').textContent = '✓ saved';
+    document.getElementById('key-status').style.color = '#4caf78';
+  } else {
+    localStorage.removeItem('pp_api_key');
+    document.getElementById('key-status').textContent = '';
+  }
+}
+
+function getKey() {
+  return localStorage.getItem('pp_api_key') || '';
+}
+
+// Load saved key on startup
+(function() {
+  const saved = getKey();
+  if (saved) {
+    document.getElementById('api-key-input').value = saved;
+    document.getElementById('key-status').textContent = '✓ saved';
+    document.getElementById('key-status').style.color = '#4caf78';
+  }
+})();
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -502,9 +539,14 @@ For correction invoices: mark is_correction: true, extract what you can.
 Return ONLY a valid JSON array, no markdown, no explanation. Be concise in all string values to avoid hitting response limits.`
 
   try {
+    const apiKey = getKey();
+    if (!apiKey) {
+      setStatus('⚠ No API key set. Enter your Anthropic API key in the bar at the top.', false);
+      return;
+    }
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 8000,
