@@ -467,10 +467,28 @@ async function handleFile(file) {
     }
 
     setStatus(`Extracted ${pages.length} pages. Sending to AI for processing...`);
-    await processWithAI(pages, file.name);
+    await processInChunks(pages, file.name);
   } catch (err) {
     setStatus(`Error reading PDF: ${err.message}`, false);
   }
+}
+
+async function processInChunks(pages, filename) {
+  const CHUNK_SIZE = 15; // pages per API call
+  const chunks = [];
+  for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
+    chunks.push(pages.slice(i, i + CHUNK_SIZE));
+  }
+
+  let allInvoices = [];
+  for (let c = 0; c < chunks.length; c++) {
+    setStatus(`Processing pages ${c * CHUNK_SIZE + 1}–${Math.min((c + 1) * CHUNK_SIZE, pages.length)} of ${pages.length}... (batch ${c+1} of ${chunks.length})`);
+    const invoices = await processWithAI(chunks[c], filename);
+    if (invoices) allInvoices = allInvoices.concat(invoices);
+  }
+
+  setStatus(`✓ Processed ${allInvoices.length} invoices`, false);
+  renderResults(allInvoices);
 }
 
 async function processWithAI(pages, filename) {
@@ -569,12 +587,11 @@ Return ONLY a valid JSON array, no markdown, no explanation. Be concise in all s
     if (arrStart === -1 || arrEnd === -1) throw new Error('No JSON array found in response');
     clean = clean.slice(arrStart, arrEnd + 1);
     const invoices = JSON.parse(clean);
-
-    setStatus(`✓ Processed ${invoices.length} invoices`, false);
-    renderResults(invoices);
+    return invoices;
   } catch (err) {
     setStatus(`Error processing invoices: ${err.message}`, false);
     console.error(err);
+    return null;
   }
 }
 
