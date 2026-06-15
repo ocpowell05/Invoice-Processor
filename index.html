@@ -474,7 +474,7 @@ async function handleFile(file) {
 }
 
 async function processInChunks(pages, filename) {
-  const CHUNK_SIZE = 15; // pages per API call
+  const CHUNK_SIZE = 6; // pages per API call — keeps response within token limit
   const chunks = [];
   for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
     chunks.push(pages.slice(i, i + CHUNK_SIZE));
@@ -565,7 +565,7 @@ flagged_items: [{"name": "respirator", "pretax_value": 24.99}, {"name": "coveral
 
 For correction invoices: mark is_correction: true, extract what you can.
 
-Return ONLY a valid JSON array, no markdown, no explanation. Be concise in all string values to avoid hitting response limits.`
+Return ONLY a valid JSON array, no markdown, no explanation. NEVER use "..." or abbreviate — output every invoice object completely. Be concise in string values but never truncate or skip items.`
 
   try {
     const apiKey = getKey();
@@ -578,7 +578,7 @@ Return ONLY a valid JSON array, no markdown, no explanation. Be concise in all s
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 8000,
+        max_tokens: 8192,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]
       })
