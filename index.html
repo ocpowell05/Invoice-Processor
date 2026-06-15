@@ -387,7 +387,7 @@
   <div id="edge-warning" style="display:none; background:#2a1a0a; border:1px solid #e8a020; border-radius:10px; padding:12px 18px; margin-bottom:16px; font-size:13px; color:#e8a020; font-family:DM Mono,monospace;">
     ⚠ Running as a local file in Edge may block API calls. For best results, use this tool inside the Claude.ai chat window instead.
   </div>
-  <div id="drop-zone">
+  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
     <span class="icon">📄</span>
     <h2>Drop daily invoice PDF here</h2>
     <p>Drag & drop or click to select your Sherwin-Williams daily invoice PDF</p>
@@ -481,13 +481,20 @@ async function processInChunks(pages, filename) {
   }
 
   let allInvoices = [];
+  let failedChunks = 0;
   for (let c = 0; c < chunks.length; c++) {
     setStatus(`Processing pages ${c * CHUNK_SIZE + 1}–${Math.min((c + 1) * CHUNK_SIZE, pages.length)} of ${pages.length}... (batch ${c+1} of ${chunks.length})`);
     const invoices = await processWithAI(chunks[c], filename);
     if (invoices) allInvoices = allInvoices.concat(invoices);
+    else failedChunks++;
   }
 
-  setStatus(`✓ Processed ${allInvoices.length} invoices`, false);
+  if (failedChunks > 0 && allInvoices.length === 0) {
+    setStatus(`⚠ All ${failedChunks} batch${failedChunks > 1 ? 'es' : ''} failed — check API key and console for details`, false);
+    return;
+  }
+  const warnSuffix = failedChunks > 0 ? ` ⚠ ${failedChunks} batch${failedChunks > 1 ? 'es' : ''} failed (results may be incomplete)` : '';
+  setStatus(`✓ Processed ${allInvoices.length} invoices${warnSuffix}`, false);
   renderResults(allInvoices);
 }
 
@@ -580,15 +587,29 @@ Return ONLY a valid JSON array, no markdown, no explanation. Be concise in all s
     const data = await response.json();
     if (data.error) throw new Error(data.error.message);
     const text = data.content?.map(b => b.text || '').join('') || '';
-    // Strip markdown fences and find the JSON array
     let clean = text.replace(/```json|```/g, '').trim();
-    // Extract just the JSON array in case there's surrounding text
-    const arrStart = clean.indexOf('[');
-    const arrEnd = clean.lastIndexOf(']');
-    if (arrStart === -1 || arrEnd === -1) throw new Error('No JSON array found in response');
-    clean = clean.slice(arrStart, arrEnd + 1);
-    const invoices = JSON.parse(clean);
-    return invoices;
+
+    // Find all JSON arrays in the response and merge them (Claude may return one per batch)
+    const allInvoices = [];
+    let searchFrom = 0;
+    while (true) {
+      const arrStart = clean.indexOf('[', searchFrom);
+      if (arrStart === -1) break;
+      let depth = 0, arrEnd = -1;
+      for (let i = arrStart; i < clean.length; i++) {
+        if (clean[i] === '[') depth++;
+        else if (clean[i] === ']') { depth--; if (depth === 0) { arrEnd = i; break; } }
+      }
+      if (arrEnd === -1) break;
+      try {
+        const chunk = JSON.parse(clean.slice(arrStart, arrEnd + 1));
+        allInvoices.push(...chunk);
+      } catch (e) {
+        console.warn('Skipped unparseable array chunk:', e.message);
+      }
+      searchFrom = arrEnd + 1;
+    }
+    return allInvoices.length > 0 ? allInvoices : null;
   } catch (err) {
     setStatus(`Error processing invoices: ${err.message}`, false);
     console.error(err);
@@ -734,7 +755,6 @@ function copyRebill(btn, date, jobNum, invoiceFull, amount, storeNum, storePhone
   // TSV row: date, wrong job#, correct job# (blank), invoice#, amount, store#, store phone, PO, ordered by, need to contact, email
   const tsv = `${date}\t${jobNum}\t\t${invoiceFull}\t${amount}\t${storeNum}\t${storePhone}\t${po}\t${buyer}\tY\t${email}`;
   copyToClipboard(tsv, () => {
-    const orig = btn.textContent;
     btn.textContent = '✓ Copied';
     showToast('Rebill row copied — paste into rebill tracker sheet');
     setTimeout(() => { btn.textContent = 'Copy Rebill Row'; }, 2000);
@@ -743,15 +763,14 @@ function copyRebill(btn, date, jobNum, invoiceFull, amount, storeNum, storePhone
 
 function copyDeduct(btn, deductStr) {
   copyToClipboard(deductStr, () => {
-    const orig = btn.textContent;
     btn.textContent = '✓ Copied';
+    showToast('Deduct line copied');
     setTimeout(() => { btn.textContent = 'Copy Deduct'; }, 2000);
   });
-  showToast('Deduct line copied');
 }
 
 function escapeAttr(str) {
-  return (str || '').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
+  return (str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, '\\n').replace(/\r/g, '');
 }
 
 function showToast(msg) {
