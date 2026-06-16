@@ -601,27 +601,21 @@ Return ONLY a valid JSON array, no markdown, no explanation. NEVER use "..." or 
     const text = data.content?.map(b => b.text || '').join('') || '';
     let clean = text.replace(/```json|```/g, '').trim();
 
-    // Find all JSON arrays in the response and merge them (Claude may return one per batch)
-    const allInvoices = [];
-    let searchFrom = 0;
-    while (true) {
-      const arrStart = clean.indexOf('[', searchFrom);
-      if (arrStart === -1) break;
-      let depth = 0, arrEnd = -1;
-      for (let i = arrStart; i < clean.length; i++) {
-        if (clean[i] === '[') depth++;
-        else if (clean[i] === ']') { depth--; if (depth === 0) { arrEnd = i; break; } }
-      }
-      if (arrEnd === -1) break;
-      try {
-        const chunk = JSON.parse(clean.slice(arrStart, arrEnd + 1));
-        allInvoices.push(...chunk);
-      } catch (e) {
-        console.warn('Skipped unparseable array chunk:', e.message);
-      }
-      searchFrom = arrEnd + 1;
+    // Find the outermost JSON array only
+    const arrStart = clean.indexOf('[');
+    const arrEnd = clean.lastIndexOf(']');
+    if (arrStart === -1 || arrEnd === -1) {
+      console.warn('No JSON array found in response');
+      return null;
     }
-    return allInvoices.length > 0 ? allInvoices : null;
+    try {
+      const invoices = JSON.parse(clean.slice(arrStart, arrEnd + 1));
+      return invoices.length > 0 ? invoices : null;
+    } catch (e) {
+      console.warn('Failed to parse JSON:', e.message);
+      console.log('Raw response:', clean);
+      return null;
+    }
   } catch (err) {
     setStatus(`Error processing invoices: ${err.message}`, false);
     console.error(err);
