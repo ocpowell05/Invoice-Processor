@@ -474,7 +474,7 @@ async function handleFile(file) {
 }
 
 async function processInChunks(pages, filename) {
-  const CHUNK_SIZE = 6; // pages per API call — keeps response within token limit
+  const CHUNK_SIZE = 4; // pages per API call — keeps response within token limit
   const chunks = [];
   for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
     chunks.push(pages.slice(i, i + CHUNK_SIZE));
@@ -591,6 +591,7 @@ Return ONLY a valid JSON array, no markdown, no explanation. NEVER use "..." or 
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 8192,
+        thinking: {type: 'disabled'},
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]
       })
@@ -603,9 +604,22 @@ Return ONLY a valid JSON array, no markdown, no explanation. NEVER use "..." or 
 
     // Find the outermost JSON array only
     const arrStart = clean.indexOf('[');
-    const arrEnd = clean.lastIndexOf(']');
-    if (arrStart === -1 || arrEnd === -1) {
+    if (arrStart === -1) {
       console.warn('No JSON array found in response');
+      return null;
+    }
+    let depth = 0, arrEnd = -1, inString = false, escape = false;
+    for (let i = arrStart; i < clean.length; i++) {
+      const ch = clean[i];
+      if (escape) { escape = false; continue; }
+      if (ch === '\\' && inString) { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '[') depth++;
+      else if (ch === ']') { depth--; if (depth === 0) { arrEnd = i; break; } }
+    }
+    if (arrEnd === -1) {
+      console.warn('JSON array was truncated — increase max_tokens or reduce chunk size');
       return null;
     }
     try {
