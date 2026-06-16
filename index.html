@@ -474,7 +474,7 @@ async function handleFile(file) {
 }
 
 async function processInChunks(pages, filename) {
-  const CHUNK_SIZE = 4; // pages per API call — keeps response within token limit
+  const CHUNK_SIZE = 3; // pages per API call — keeps response within token limit
   const chunks = [];
   for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
     chunks.push(pages.slice(i, i + CHUNK_SIZE));
@@ -603,7 +603,7 @@ Return ONLY a valid JSON array, no markdown, no explanation. NEVER use "..." or 
     let clean = text.replace(/```json|```/g, '').trim();
 
     // Find the outermost JSON array only
-    const arrStart = clean.indexOf('[');
+    const arrStart = clean.indexOf('[{');
     if (arrStart === -1) {
       console.warn('No JSON array found in response');
       return null;
