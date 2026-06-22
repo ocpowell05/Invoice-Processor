@@ -474,44 +474,76 @@ async function handleFile(file) {
 }
 
 async function processInChunks(pages, filename) {
-  const CHUNK_SIZE = 4; // pages per API call — keeps response within token limit
+  // One page per batch — guarantees a multi-page invoice is never split, and a
+  // single bad page can't take down its neighbors.
+  const CHUNK_SIZE = 1;
   const chunks = [];
   for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
-    chunks.push(pages.slice(i, i + CHUNK_SIZE));
+    chunks.push({ pages: pages.slice(i, i + CHUNK_SIZE), start: i + 1 });
   }
 
-  let allInvoices = [];
-  let failedChunks = 0;
-  const MAX_RETRIES = 2;
-  for (let c = 0; c < chunks.length; c++) {
-    const pageStart = c * CHUNK_SIZE + 1;
-    const pageEnd = Math.min((c + 1) * CHUNK_SIZE, pages.length);
-    let invoices = null;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      if (attempt > 0) {
-        setStatus(`Retrying batch ${c+1} of ${chunks.length} (attempt ${attempt+1})...`);
-        await new Promise(r => setTimeout(r, 1500 * attempt));
-      } else {
-        setStatus(`Processing pages ${pageStart}–${pageEnd} of ${pages.length}... (batch ${c+1} of ${chunks.length})`);
+  // Process at most CONCURRENCY pages at once. Fast, but safe against the
+  // shared API key's rate limit. 6 is a comfortable middle ground; lower it
+  // to 4 if you ever see rate-limit failures, raise it for more speed.
+  const CONCURRENCY = 6;
+  const MAX_RETRIES = 1;
+
+  let done = 0;
+  let nextIndex = 0;
+  const results = new Array(chunks.length);
+
+  setStatus(`Processing ${chunks.length} pages (${CONCURRENCY} at a time)...`);
+
+  // A worker pulls the next available page, processes it, then pulls another —
+  // keeping CONCURRENCY pages in flight at all times.
+  async function worker() {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= chunks.length) return;
+      const chunk = chunks[i];
+
+      let invoices = null;
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 800));
+        invoices = await processWithAI(chunk.pages, filename, chunk.start);
+        if (invoices) break;
       }
-      invoices = await processWithAI(chunks[c], filename);
-      if (invoices) break;
+
+      results[i] = { invoices, pageStart: chunk.start };
+      done++;
+      setStatus(`Processed ${done} of ${chunks.length} pages...`);
     }
-    if (invoices) allInvoices = allInvoices.concat(invoices);
-    else failedChunks++;
   }
 
-  if (failedChunks > 0 && allInvoices.length === 0) {
-    setStatus(`⚠ All ${failedChunks} batch${failedChunks > 1 ? 'es' : ''} failed — check API key and console for details`, false);
-    return;
+  // Launch the pool and wait for all workers to drain the queue.
+  const pool = [];
+  for (let w = 0; w < Math.min(CONCURRENCY, chunks.length); w++) {
+    pool.push(worker());
   }
-  const warnSuffix = failedChunks > 0 ? ` ⚠ ${failedChunks} batch${failedChunks > 1 ? 'es' : ''} failed (results may be incomplete)` : '';
-  setStatus(`✓ Processed ${allInvoices.length} invoices${warnSuffix}`, false);
+  await Promise.all(pool);
+
+  // Collect in page order; report failures loudly.
+  let allInvoices = [];
+  const failedPages = [];
+  for (const r of results) {
+    if (r && r.invoices && r.invoices.length) allInvoices = allInvoices.concat(r.invoices);
+    else if (r) failedPages.push(r.pageStart);
+  }
+
+  if (failedPages.length) {
+    setStatus(
+      `✓ Processed ${allInvoices.length} invoices — ⚠ ${failedPages.length} PAGE(S) FAILED: ` +
+      `page ${failedPages.join(', ')}. Open the PDF to those pages and enter them manually.`,
+      false
+    );
+  } else {
+    setStatus(`✓ Processed ${allInvoices.length} invoices — all pages succeeded`, false);
+  }
   renderResults(allInvoices);
 }
 
-async function processWithAI(pages, filename) {
-  const allText = pages.map((p, i) => `=== PAGE ${i+1} ===\n${p}`).join('\n\n');
+async function processWithAI(pages, filename, pageStart = 1) {
+  const allText = pages.map((p, i) => `=== PAGE ${pageStart + i} ===\n${p}`).join('\n\n');
   const userPrompt = `Process these invoice pages from file "${filename}":\n\n${allText}`;
 
   const systemPrompt = `You are processing Sherwin-Williams invoices for a painting company.
@@ -626,13 +658,48 @@ Return ONLY a valid JSON array, no markdown, no explanation. NEVER use "..." or 
       const invoices = JSON.parse(clean.slice(arrStart, arrEnd + 1));
       return invoices.length > 0 ? invoices : null;
     } catch (e) {
-      console.warn('Failed to parse JSON:', e.message);
+      console.warn('Failed to parse JSON on page', pageStart, '—', e.message);
       console.log('Raw response:', clean);
-      return null;
+      // SAFETY NET: full parse failed. Make one minimal call for just the
+      // critical fields (date + cost) so this page isn't lost entirely.
+      return await processMinimal(pages, filename, pageStart);
     }
   } catch (err) {
     setStatus(`Error processing invoices: ${err.message}`, false);
     console.error(err);
+    return null;
+  }
+}
+
+// Fallback: when full extraction fails, grab only the date + total so the
+// invoice still shows up with its two most important fields correct.
+async function processMinimal(pages, filename, pageStart) {
+  const allText = pages.map((p, i) => `=== PAGE ${pageStart + i} ===\n${p}`).join('\n\n');
+  const sys = `Extract ONLY the invoice number, date, total CHARGE amount, and job from these Sherwin-Williams invoice pages. Return ONLY a JSON array of objects with keys: invoice_num, date (M/D/YYYY), total (e.g. "$110.21"), job. No markdown, no explanation.`;
+  try {
+    const apiKey = getKey();
+    if (!apiKey) return null;
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system: sys,
+        messages: [{ role: 'user', content: allText }]
+      })
+    });
+    const data = await response.json();
+    if (data.error) return null;
+    const text = data.content?.map(b => b.text || '').join('') || '';
+    const clean = text.replace(/```json|```/g, '').trim();
+    const s = clean.indexOf('['), e = clean.lastIndexOf(']');
+    if (s === -1 || e === -1) return null;
+    const invoices = JSON.parse(clean.slice(s, e + 1));
+    // Mark these so you know they're partial and need a manual glance.
+    invoices.forEach(inv => { inv.description = ['⚠ PARTIAL — verify materials manually']; });
+    return invoices.length ? invoices : null;
+  } catch (_) {
     return null;
   }
 }
