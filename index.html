@@ -506,7 +506,14 @@ async function processInChunks(pages, filename) {
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 800));
         invoices = await processWithAI(chunk.pages, filename, chunk.start);
-        if (invoices) break;
+        // An empty array means the page parsed fine but the model returned
+        // nothing — treat that as "not done yet" so we retry, then fall back.
+        if (invoices && invoices.length) break;
+        invoices = null;
+      }
+      // Last resort if even retries came back empty: minimal date+cost grab.
+      if (!invoices) {
+        invoices = await processMinimal(chunk.pages, filename, chunk.start);
       }
 
       results[i] = { invoices, pageStart: chunk.start };
@@ -608,6 +615,8 @@ description: ["10 gal PM 200 0 FL EXTRA - 7005 PURE WHITE", "masking tape, caulk
 flagged_items: [{"name": "respirator", "pretax_value": 24.99}, {"name": "coverall suit", "pretax_value": 12.50}]
 
 For correction invoices: mark is_correction: true, extract what you can.
+
+CRITICAL: ALWAYS return one object per invoice, even if the invoice has NO paint and only supply items, even if every line is discounted, and even if it is tiny. A page with any CHARGE total is a valid invoice and MUST be returned. Never return an empty array for a page that contains an invoice.
 
 Return ONLY a valid JSON array, no markdown, no explanation. NEVER use "..." or abbreviate — output every invoice object completely. Be concise in string values but never truncate or skip items.`
 
